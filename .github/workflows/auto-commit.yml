@@ -2,7 +2,7 @@ name: Auto Commit
 
 on:
   schedule:
-    - cron: "50 15 * * *"  # 每天的中国时间 23:50 运行
+    - cron: "50 15 * * *" # run at 23:50 in China time
   workflow_dispatch:
 
 jobs:
@@ -17,6 +17,8 @@ jobs:
 
       - name: Set up Git
         run: |
+          # You should set your email and name here.
+
           git config --global user.email "qq343075466@gmail.com"
           git config --global user.name "qq343075466"
 
@@ -33,12 +35,13 @@ jobs:
           contained_repos=$(echo "$response_body" | jq -r '.[] | .full_name')
           echo "Contained repositories: $contained_repos"
 
-          # 保存 repos 到环境变量
-          echo "repos=$(echo "$contained_repos" | tr '\n' ',')" >> $GITHUB_ENV
+          echo "::set-output name=repos::$(echo "$contained_repos" | tr '\n' ',')" # output repos
 
       - name: Read repositories list and check commits
         run: |
-          date_today=$(TZ='Asia/Shanghai' date -I)  # 获取当天的日期
+          # Set custom timezone and other config by yourself.
+
+          date_today=$(TZ='Asia/Shanghai' date -I) # Date part
           time_start="${date_today}T00:00:00"
           time_end="${date_today}T23:55:00"
           commit_message="Auto commit on $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')"
@@ -46,7 +49,7 @@ jobs:
           commits_exist=false
           echo "Checking commits between $time_start and $time_end"
 
-          IFS=', ' read -r -a repos <<< "${{ env.repos }}"  # 使用环境变量传递的 repos
+          IFS=', ' read -r -a repos <<< "${{ steps.get-repos.outputs.repos }}"
           for repo in "${repos[@]}"; do
             echo "Checking commits for $repo"
             commit_today=$(curl -H "Authorization: token ${{ secrets.TOKEN }}" -s "https://api.github.com/repos/$repo/commits?since=$time_start&until=$time_end")
@@ -67,4 +70,3 @@ jobs:
           else
             echo "Commits found today."
           fi
-
