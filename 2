@@ -1,0 +1,72 @@
+name: Auto Commit
+
+on:
+  schedule:
+    - cron: "0 15 * * *"  # Run at 23:50 in China time (UTC 15:00)
+  workflow_dispatch:
+
+jobs:
+  check_commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Git
+        run: |
+          git config --global user.email "qq343075466@gmail.com"
+          git config --global user.name "qq343075466"
+
+      - name: Get all repositories
+        id: get-repos
+        run: |
+          echo "Fetching all repositories..."
+          response=$(curl -s -w "\n%{http_code}" -H "Authorization: token ${{ secrets.TOKEN }}" "https://api.github.com/user/repos?type=all")
+          http_code=$(echo "$response" | tail -n1)
+          response_body=$(echo "$response" | sed '$d')
+
+          echo "[HTTP status code]: $http_code"
+
+          contained_repos=$(echo "$response_body" | jq -r '.[] | .full_name')
+          echo "Contained repositories: $contained_repos"
+
+          # Set output in GITHUB_ENV format
+          echo "REPOS=$contained_repos" >> $GITHUB_ENV
+
+      - name: Read repositories list and check commits
+        run: |
+          # Set custom timezone and other config
+          date_today=$(TZ='Asia/Shanghai' date -I)  # Date part
+          time_start="${date_today}T00:00:00"
+          time_end="${date_today}T23:59:59"
+          commit_message="Auto commit on $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')"
+
+          commits_exist=false
+          echo "Checking commits between $time_start and $time_end"
+
+          IFS=', ' read -r -a repos <<< "$REPOS"
+          for repo in "${repos[@]}"; do
+            echo "Checking commits for $repo"
+            commit_today=$(curl -H "Authorization: token ${{ secrets.TOKEN }}" -s "https://api.github.com/repos/$repo/commits?since=$time_start&until=$time_end")
+            
+            # If there are any commits today, it will have a non-empty array
+            if echo "$commit_today" | jq -e '. | length > 0' > /dev/null; then
+                echo "Commits today in $repo:"
+                echo "$commit_today"
+                commits_exist=true
+                break
+            fi
+          done
+
+          if [ "$commits_exist" = false ]; then
+            echo "No commits found today across all repositories. Creating a dummy commit..."
+            echo "$date_today No commits found today, auto committed." >> dummy.txt
+            git add dummy.txt
+            git commit -m "$commit_message"
+            git push https://${{ secrets.TOKEN }}@github.com/${{ github.repository }}.git
+          else
+            echo "Commits found today."
+          fi
